@@ -1,0 +1,14 @@
+model:
+  target: ldm.inference.EyeDiff
+  params:
+    device: cuda
+    model_path: #/home/nick/ai_readi/diffusion/logs/2025-08-17T14-13-20_diff-fundus/checkpoints/epoch=000351.ckpt
+    ae_path: #/home/nick/ai_readi/diffusion/logs/2025-07-25T17-31-11_ae_64_fundus/checkpoints/epoch=000249.ckpt
+    
+    
+data:
+  batch_size: 32
+  data_path: /data/7TB/nick/ai_readi/
+  save_path: /data/7TB/nick/ai_readi/synth_fundus/
+  num_workers: 16
+  task: fundus
