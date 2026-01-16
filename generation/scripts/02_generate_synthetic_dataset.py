@@ -23,7 +23,7 @@ from accelerate.utils import gather_object
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from ldm import instantiate_from_config
-from datasets import AI_READI_Dataset
+from dataset import AI_READI_Dataset
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
