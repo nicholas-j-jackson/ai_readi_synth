@@ -97,10 +97,6 @@ if __name__ == "__main__":
     model = accelerator.prepare(model)  # Prepare model for distributed inference
     seed_everything(seed)
 
-    # EyeDiff calls this itself by default
-        #model.eval() 
-        #model.to(device)
-
     
     # Data (for labels)
     batch_size = config.data.batch_size
