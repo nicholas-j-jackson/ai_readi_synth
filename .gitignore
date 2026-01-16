@@ -12,6 +12,8 @@ tabular_generation/RL/observation.csv
 Analysis/min_distance_fundus.csv
 Analysis/min_distance_oct.csv
 Analysis/min_distance_tabular.csv
+Analysis/fundus_utility_eval.ipynb
+Analysis/oct_utility_eval.ipynb
 
 classification/RETFound_MAE/output_dir_iid/
 classification/RETFound_MAE/output_dir_recommended_old/
