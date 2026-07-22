@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 class AI_READI_Dataset(Dataset):
 
-    def __init__(self, root: str, transforms: Optional[Compose] = None, mode: Optional[str] = 'train', task: Optional[str] = 'fundus', pre_embed: Optional[bool] = True) -> None:
+    def __init__(self, root: str, transforms: Optional[Compose] = None, mode: Optional[str] = 'train', task: Optional[str] = 'fundus', pre_embed: Optional[bool] = True, limit: Optional[int] = None) -> None:
         self.root = root
         self.task = task
         self.pre_embed = pre_embed
@@ -73,6 +73,12 @@ class AI_READI_Dataset(Dataset):
 
         # Create one-hot encoded columns for T2D status, imaging equipment, laterality, anatomic region, and imaging type
         self.df = pd.concat([self.df] + [pd.get_dummies(self.df[x]).astype(int) for x in ['study_group', 'manufacturers_model_name', 'laterality', 'anatomic_region', 'imaging']], axis=1)
+
+        if limit is not None:
+            # Deterministic truncation (row order/count is identical regardless of
+            # pre_embed), so a precompute run and a training run given the same limit
+            # operate on exactly the same subset of images.
+            self.df = self.df.iloc[:limit]
 
         if self.pre_embed:
             if task == 'oct':
