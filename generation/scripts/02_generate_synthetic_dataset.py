@@ -93,21 +93,20 @@ if __name__ == "__main__":
     OmegaConf.update(config, "model.params.device", str(device))
     print(config)
 
-    model = instantiate_from_config(config.model)    
+    model = instantiate_from_config(config.model)
     model = accelerator.prepare(model)  # Prepare model for distributed inference
     seed_everything(seed)
 
-    
+
     # Data (for labels)
     batch_size = config.data.batch_size
-    dataset = AI_READI_Dataset('/data/7TB/nick/ai_readi/', transforms=None, mode=split, task='fundus', pre_embed=False)
+    dataset = AI_READI_Dataset(config.data.data_path, transforms=None, mode=split, task=config.data.task, pre_embed=False)
 
 
     # Create save directories
     if rank == 0:
-        if not os.path.exists(config.data.save_path+split):
-            os.makedirs(config.data.save_path, exist_ok=True)
-            
+        os.makedirs(os.path.join(config.data.save_path, split), exist_ok=True)
+
         if accelerator.process_index == 0:
             print_with_prefix(f"Saving .png samples at {config.data.save_path}/{split}")
     accelerator.wait_for_everyone()
@@ -116,11 +115,15 @@ if __name__ == "__main__":
     # Figure out how many samples we need to generate on each GPU and how many iterations we need to run:
     n = batch_size
     global_batch_size = n * accelerator.num_processes
-    
+
+    # Optional cap on the number of samples generated (e.g. for a quick smoke test);
+    # defaults to the full dataset size, matching prior behavior.
+    target_count = len(dataset) if config.data.get("limit", None) is None else min(config.data.limit, len(dataset))
+
     # To make things evenly-divisible, we'll sample a bit more than we need and then discard the extra samples:
     num_samples = len([name for name in os.listdir(config.data.save_path+'/'+split) if (os.path.isfile(os.path.join(config.data.save_path, split, name)) and ".png" in name)])
-    total_samples = int(math.ceil(len(dataset) / global_batch_size) * global_batch_size)
-    
+    total_samples = int(math.ceil(target_count / global_batch_size) * global_batch_size)
+
 
     if rank == 0:
         if accelerator.process_index == 0:
