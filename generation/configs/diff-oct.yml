@@ -9,7 +9,7 @@ model:
     timesteps: 1000
     first_stage_key: image
     cond_stage_key: class_label
-    image_size: 64
+    image_size: 32
     channels: 3
     cond_stage_trainable: true
     conditioning_key: crossattn
@@ -22,7 +22,7 @@ model:
     unet_config:
       target: ldm.modules.diffusionmodules.openaimodel.UNetModel
       params:
-        image_size: 64
+        image_size: 32
         in_channels: 3
         out_channels: 3
         model_channels: 224
@@ -55,7 +55,7 @@ model:
 data:
   params:
     batch_size: 32
-    data_path: /data/7TB/nick/ai_readi/
+    data_path: /data/7TB/nick/ai_readi_v3/
     test_size: 10000
     num_workers: 64
     task: oct
