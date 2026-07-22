@@ -1,5 +1,5 @@
 
-
+# Tabular data files and intermediate-stage preprocessing
 tabular_generation/preprocessing_AIREADI/aligned_data/
 tabular_generation/preprocessing_AIREADI/conditions/
 tabular_generation/preprocessing_AIREADI/ekgs/
@@ -9,31 +9,36 @@ tabular_generation/preprocessing_AIREADI/ai_readi_full_data.csv
 
 tabular_generation/RL/observation.csv
 
+# Extra data files
 Analysis/min_distance_fundus.csv
 Analysis/min_distance_oct.csv
 Analysis/min_distance_tabular.csv
 Analysis/fundus_utility_eval.ipynb
 Analysis/oct_utility_eval.ipynb
+synth_all.tar.gz
+Analysis/table*
+Analysis/figure.pdf
 
+# Deprecated output dirs
 classification/RETFound_MAE/output_dir_iid/
 classification/RETFound_MAE/output_dir_recommended_old/
 classification/RETFound_MAE/output_logs/
 classification/RETFound_MAE/output_logs/
 
+# Pretrained model
 classification/RETFound_MAE/pretrained_weights/RETFound_mae_natureCFP.pth
 classification/RETFound_MAE/pretrained_weights/RETFound_mae_natureOCT.pth
 
-oct_generation/
-
+# Logs and debugging for generator
 generation/notebooks/
-
 generation/logs/
 
+# 
 *.pth
 *.ckpt
 *__pycache__
 *.pyc
 
-synth_all.tar.gz
-Analysis/table*
-Analysis/figure.pdf
+# Smaller experiment using FID features for similarity/privacy evals
+classification/RETFound_MAE/extract_*_inception.sh
+inception_extract.py
