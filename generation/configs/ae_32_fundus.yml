@@ -31,6 +31,7 @@ data:
     data_path: /data/7TB/nick/ai_readi_v3/
     num_workers: 32
     task: fundus
+    pre_embed: false
 
 
 lightning:
