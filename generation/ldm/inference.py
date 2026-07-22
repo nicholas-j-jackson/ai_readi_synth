@@ -149,7 +149,7 @@ class CheffLDM:
     @staticmethod
     def _get_unet_config_dict() -> Dict:
         return {
-            'target': 'cheff.ldm.modules.diffusionmodules.openaimodel.UNetModel',
+            'target': 'ldm.modules.diffusionmodules.openaimodel.UNetModel',
             'params': {
                 'image_size': 64,
                 'in_channels': 3,
@@ -165,7 +165,7 @@ class CheffLDM:
     @staticmethod
     def _get_first_stage_config_dict(ae_path: Optional[str] = None) -> Dict:
         return {
-            'target': 'cheff.ldm.models.autoencoder.AutoencoderKL',
+            'target': 'ldm.models.autoencoder.AutoencoderKL',
             'params': {
                 'embed_dim': 3,
                 'ckpt_path': ae_path,
@@ -274,7 +274,7 @@ class CheffLDMT2I(CheffLDM):
     @staticmethod
     def _get_cond_config_dict() -> Dict:
         return {
-            'target': 'cheff.ldm.modules.encoders.modules.BERTEmbedder',
+            'target': 'ldm.modules.encoders.modules.BERTEmbedder',
             'params': {
                 'n_embed': 1280,
                 'n_layer': 32,
@@ -284,7 +284,7 @@ class CheffLDMT2I(CheffLDM):
     @staticmethod
     def _get_unet_config_dict() -> Dict:
         return {
-            'target': 'cheff.ldm.modules.diffusionmodules.openaimodel.UNetModel',
+            'target': 'ldm.modules.diffusionmodules.openaimodel.UNetModel',
             'params': {
                 'image_size': 64,
                 'in_channels': 3,
@@ -299,5 +299,128 @@ class CheffLDMT2I(CheffLDM):
                 'context_dim': 1280,
                 'use_checkpoint': True,
                 'legacy': False,
+            }
+        }
+
+
+class EyeDiff(CheffLDM):
+    """Class-conditional retinal (fundus/OCT) LDM, sampled from a vector of binary
+    imaging-device/anatomy/laterality/disease attributes embedded via MultiClassEmbedder,
+    matching the models trained with diff-fundus.yml / diff-oct.yml."""
+
+    def __init__(
+            self,
+            model_path: str,
+            ae_path: str,
+            n_classes: int = 21,
+            device: Union[str, int, torch.device] = 'cuda'
+    ) -> None:
+        self.n_classes = n_classes
+        super().__init__(model_path, ae_path, device)
+
+    @torch.no_grad()
+    def sample(
+            self,
+            batch_size: int = 1,
+            sampling_steps: int = 100,
+            eta: float = 1.0,
+            decode: bool = True,
+            conditioning: Optional[Dict[str, Tensor]] = None,
+            *args,
+            **kwargs
+    ) -> Tensor:
+        c = self.model.get_learned_conditioning(conditioning)
+
+        ddim = DDIMSampler(self.model)
+        samples, _ = ddim.sample(
+            sampling_steps, conditioning=c, batch_size=batch_size, shape=self.sample_shape, eta=eta, verbose=False
+        )
+
+        if decode:
+            samples = self.model.decode_first_stage(samples)
+
+        return samples
+
+    def _init_checkpoint(
+            self, model_path: str, ae_path: Optional[str] = None
+    ) -> LatentDiffusion:
+        config_dict = self._get_config_dict(ae_path)
+        model = LatentDiffusion(**config_dict)
+
+        state_dict = torch.load(model_path, map_location=self.device)
+        model.load_state_dict(state_dict['state_dict'], strict=False)
+        return model
+
+    def _get_config_dict(self, ae_path: Optional[str] = None) -> Dict:
+        return {
+            'linear_start': 0.0015,
+            'linear_end': 0.0295,
+            'num_timesteps_cond': 1,
+            'log_every_t': 200,
+            'timesteps': 1000,
+            'first_stage_key': 'image',
+            'cond_stage_key': 'class_label',
+            'image_size': 32,
+            'channels': 3,
+            'cond_stage_trainable': True,
+            'conditioning_key': 'crossattn',
+            'monitor': 'val/loss_simple_ema',
+            'scale_factor': 0.18215,
+            'unet_config': EyeDiff._get_unet_config_dict(),
+            'first_stage_config': EyeDiff._get_first_stage_config_dict(ae_path),
+            'cond_stage_config': self._get_cond_config_dict(),
+        }
+
+    @staticmethod
+    def _get_unet_config_dict() -> Dict:
+        return {
+            'target': 'ldm.modules.diffusionmodules.openaimodel.UNetModel',
+            'params': {
+                'image_size': 32,
+                'in_channels': 3,
+                'out_channels': 3,
+                'model_channels': 224,
+                'attention_resolutions': [8, 4, 2],
+                'num_res_blocks': 2,
+                'channel_mult': [1, 2, 4, 4],
+                'num_heads': 8,
+                'use_spatial_transformer': True,
+                'transformer_depth': 1,
+                'context_dim': 512,
+                'use_checkpoint': True,
+                'legacy': False,
+            }
+        }
+
+    @staticmethod
+    def _get_first_stage_config_dict(ae_path: Optional[str] = None) -> Dict:
+        return {
+            'target': 'ldm.models.autoencoder.AutoencoderKL',
+            'params': {
+                'embed_dim': 3,
+                'ckpt_path': ae_path,
+                'ddconfig': {
+                    'double_z': True,
+                    'z_channels': 3,
+                    'resolution': 256,
+                    'in_channels': 3,
+                    'out_ch': 3,
+                    'ch': 128,
+                    'ch_mult': [1, 2, 4, 4],
+                    'num_res_blocks': 2,
+                    'attn_resolutions': [],
+                    'dropout': 0.0
+                },
+                'lossconfig': {'target': 'torch.nn.Identity'}
+            }
+        }
+
+    def _get_cond_config_dict(self) -> Dict:
+        return {
+            'target': 'ldm.modules.encoders.modules.MultiClassEmbedder',
+            'params': {
+                'n_classes': self.n_classes,
+                'embed_dim': 512,
+                'key': 'class_label',
             }
         }
