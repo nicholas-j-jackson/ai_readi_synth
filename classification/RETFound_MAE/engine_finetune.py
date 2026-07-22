@@ -182,7 +182,7 @@ def evaluate(data_loader, model, device, args, epoch, mode, num_class, log_write
 
 
 @torch.no_grad()
-def extract(data_loader, model, device, args, mode='train', synth=False):
+def extract(data_loader, model, device, args, mode='train', synth=False, fid=False):
     """Extract latent """
     model.eval()
     out = []
@@ -200,7 +200,7 @@ def extract(data_loader, model, device, args, mode='train', synth=False):
     
     # Save these extracted features
     import pandas as pd
-    out = pd.DataFrame(out.cpu().squeeze().numpy(), columns=['feat_' + str(x) for x in range(output.shape[2])])
+    out = pd.DataFrame(out.cpu().squeeze().numpy(), columns=['feat_' + str(x) for x in range(out.shape[1])])
     df = data_loader.dataset.df
 
     print(out.shape, df.shape)
@@ -209,14 +209,16 @@ def extract(data_loader, model, device, args, mode='train', synth=False):
     df = pd.concat([df, out], axis=1)
 
     print(df.shape)
+    suffix = '_fid' if fid else '_latents'
+
     if args.modality == 'fundus':
         if synth:
-            df.to_csv('/data/7TB/nick/synth_ai_readi_fundus/retinal_photography/{}_latents.csv'.format(mode))
+            df.to_csv('/data/7TB/nick/synth_ai_readi_fundus/retinal_photography/{}{}.csv'.format(mode, suffix))
         else:
-            df.to_csv('/data/7TB/nick/ai_readi_v3/resized_retinal_photography/{}_latents.csv'.format(mode))
+            df.to_csv('/data/7TB/nick/ai_readi_v3/resized_retinal_photography/{}{}.csv'.format(mode, suffix))
     else:
         if synth:
-            df.to_csv('/data/7TB/nick/synth_ai_readi_oct/retinal_oct/{}_latents.csv'.format(mode))
+            df.to_csv('/data/7TB/nick/synth_ai_readi_oct/retinal_oct/{}{}.csv'.format(mode, suffix))
         else:
-            df.to_csv('/data/7TB/nick/ai_readi_v3/resized_retinal_oct/{}_latents.csv'.format(mode))
+            df.to_csv('/data/7TB/nick/ai_readi_v3/resized_retinal_oct/{}{}.csv'.format(mode, suffix))
 
