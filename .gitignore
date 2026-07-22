@@ -33,3 +33,7 @@ generation/logs/
 *.ckpt
 *__pycache__
 *.pyc
+
+synth_all.tar.gz
+Analysis/table*
+Analysis/figure.pdf
