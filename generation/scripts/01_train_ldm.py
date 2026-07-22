@@ -18,11 +18,12 @@ from pytorch_lightning.utilities import rank_zero_info
 from torch.utils.data import random_split, DataLoader, Dataset, ConcatDataset
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
+from pytorch_lightning.strategies import DDPStrategy
 from torchvision.transforms import Compose, ToTensor, Resize, Normalize
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from ldm import instantiate_from_config
-from datasets import AI_READI_Dataset
+from dataset import AI_READI_Dataset
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -125,14 +126,31 @@ def get_parser(**parser_kwargs):
         type=bool,
         default=False,
     )
+    parser.add_argument(
+        "--max_epochs",
+        type=int,
+        default=None,
+        help="override the max_epochs set in the config's lightning.trainer section",
+    )
+    parser.add_argument(
+        "--devices",
+        type=int,
+        default=1,
+        help="number of GPUs to train on (single-process; use accelerate/ddp launcher for multi-node)",
+    )
+    parser.add_argument(
+        "--limit_train_batches",
+        type=float,
+        default=1.0,
+        help="fraction (<=1.0) or fixed number (>1) of train batches per epoch, for quick smoke tests",
+    )
+    parser.add_argument(
+        "--limit_val_batches",
+        type=float,
+        default=1.0,
+        help="fraction (<=1.0) or fixed number (>1) of val batches per epoch, for quick smoke tests",
+    )
     return parser
-
-
-def nondefault_trainer_args(opt):
-    parser = argparse.ArgumentParser()
-    parser = Trainer.add_argparse_args(parser)
-    args = parser.parse_args([])
-    return sorted(k for k in vars(args) if getattr(opt, k) != getattr(args, k))
 
 
 def worker_init_fn(_):
@@ -165,8 +183,9 @@ class DataModuleFromConfig(pl.LightningDataModule):
         else: 
             self.transforms = ToTensor()
 
-        self.train_dataset = AI_READI_Dataset(data_path, self.transforms, mode='train', task=kwargs['task'], pre_embed=kwargs['pre_embed'])
-        self.val_dataset = AI_READI_Dataset(data_path, self.transforms, mode='val', task=kwargs['task'], pre_embed=kwargs['pre_embed'])
+        limit = kwargs.get('limit', None)
+        self.train_dataset = AI_READI_Dataset(data_path, self.transforms, mode='train', task=kwargs['task'], pre_embed=kwargs['pre_embed'], limit=limit)
+        self.val_dataset = AI_READI_Dataset(data_path, self.transforms, mode='val', task=kwargs['task'], pre_embed=kwargs['pre_embed'], limit=limit)
         
         #print(self.train_dataset.df[['clinical_site']].value_counts() / len(self.train_dataset.df) * 100, self.val_dataset.df[['clinical_site']].value_counts() / len(self.val_dataset.df) * 100)
         #print(self.train_dataset.df[['study_group']].value_counts() / len(self.train_dataset.df) * 100, self.val_dataset.df[['study_group']].value_counts() / len(self.val_dataset.df) * 100)
@@ -209,13 +228,13 @@ class SetupCallback(Callback):
         self.config = config
         self.lightning_config = lightning_config
 
-    def on_keyboard_interrupt(self, trainer, pl_module):
+    def on_exception(self, trainer, pl_module, exception):
         if trainer.global_rank == 0:
             print("Summoning checkpoint.")
             ckpt_path = os.path.join(self.ckptdir, "last.ckpt")
             trainer.save_checkpoint(ckpt_path)
 
-    def on_pretrain_routine_start(self, trainer, pl_module):
+    def on_fit_start(self, trainer, pl_module):
         if trainer.global_rank == 0:
             # Create logdirs and save configs
             os.makedirs(self.logdir, exist_ok=True)
@@ -260,9 +279,7 @@ class ImageLogger(Callback):
         self.rescale = rescale
         self.batch_freq = batch_frequency
         self.max_images = max_images
-        self.logger_log_images = {
-            pl.loggers.TestTubeLogger: self._testtube,
-        }
+        self.logger_log_images = {}
         self.log_steps = [2 ** n for n in range(int(np.log2(self.batch_freq)) + 1)]
         if not increase_log_steps:
             self.log_steps = [self.batch_freq]
@@ -356,7 +373,7 @@ class ImageLogger(Callback):
             self.log_img(pl_module, batch, batch_idx, split="train")
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx,
-                                dataloader_idx):
+                                dataloader_idx=0):
         
         if not self.disabled and pl_module.global_step > 0:
             self.log_img(pl_module, batch, batch_idx, split="val")
@@ -370,18 +387,20 @@ class CUDACallback(Callback):
     # see https://github.com/SeanNaren/minGPT/blob/master/mingpt/callback.py
     def on_train_epoch_start(self, trainer, pl_module):
         # Reset the memory use counter
-        torch.cuda.reset_peak_memory_stats(trainer.root_gpu)
-        torch.cuda.synchronize(trainer.root_gpu)
+        device = torch.cuda.current_device()
+        torch.cuda.reset_peak_memory_stats(device)
+        torch.cuda.synchronize(device)
         self.start_time = time.time()
 
     def on_train_epoch_end(self, trainer, pl_module, *args, **kwargs):
-        torch.cuda.synchronize(trainer.root_gpu)
-        max_memory = torch.cuda.max_memory_allocated(trainer.root_gpu) / 2 ** 20
+        device = torch.cuda.current_device()
+        torch.cuda.synchronize(device)
+        max_memory = torch.cuda.max_memory_allocated(device) / 2 ** 20
         epoch_time = time.time() - self.start_time
 
         try:
-            max_memory = trainer.training_type_plugin.reduce(max_memory)
-            epoch_time = trainer.training_type_plugin.reduce(epoch_time)
+            max_memory = trainer.strategy.reduce(max_memory)
+            epoch_time = trainer.strategy.reduce(epoch_time)
 
             rank_zero_info(f"Average Epoch time: {epoch_time:.2f} seconds")
             rank_zero_info(f"Average Peak memory {max_memory:.2f}MiB")
@@ -438,7 +457,6 @@ if __name__ == "__main__":
     sys.path.append(os.getcwd())
 
     parser = get_parser()
-    parser = Trainer.add_argparse_args(parser)
 
     opt, unknown = parser.parse_known_args()
     if opt.name and opt.resume:
@@ -493,16 +511,13 @@ if __name__ == "__main__":
         trainer_config = lightning_config.get("trainer", OmegaConf.create())
         # default to ddp
         #trainer_config['strategy'] = 'ddp'
-        trainer_config['max_epochs'] =  815 # 250
-
-        for k in nondefault_trainer_args(opt):
-            trainer_config[k] = getattr(opt, k)
+        trainer_config['max_epochs'] = opt.max_epochs if opt.max_epochs is not None else 815 # 250
 
         gpuinfo = torch.cuda.device_count()
         print(f"Running on GPUs {gpuinfo}")
         cpu = False
 
-        trainer_opt = argparse.Namespace(**trainer_config)
+        resume_ckpt_path = opt.resume_from_checkpoint if opt.resume else None
         lightning_config.trainer = trainer_config
 
         # model
@@ -595,10 +610,8 @@ if __name__ == "__main__":
             callbacks_cfg = OmegaConf.create()
 
         callbacks_cfg = OmegaConf.merge(default_callbacks_cfg, callbacks_cfg)
-        if 'ignore_keys_callback' in callbacks_cfg and hasattr(trainer_opt,
-                                                               'resume_from_checkpoint'):
-            callbacks_cfg.ignore_keys_callback.params[
-                'ckpt_path'] = trainer_opt.resume_from_checkpoint
+        if 'ignore_keys_callback' in callbacks_cfg and resume_ckpt_path is not None:
+            callbacks_cfg.ignore_keys_callback.params['ckpt_path'] = resume_ckpt_path
         elif 'ignore_keys_callback' in callbacks_cfg:
             del callbacks_cfg['ignore_keys_callback']
 
@@ -608,8 +621,17 @@ if __name__ == "__main__":
         trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k
                                        in callbacks_cfg]
 
-        from pytorch_lightning.strategies import DDPStrategy
-        trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs, strategy=DDPStrategy(find_unused_parameters=False))
+        strategy = DDPStrategy(find_unused_parameters=False) if opt.devices > 1 else "auto"
+        trainer = Trainer(
+            max_epochs=trainer_config['max_epochs'],
+            devices=opt.devices,
+            accelerator='gpu' if torch.cuda.is_available() else 'cpu',
+            strategy=strategy,
+            benchmark=trainer_config.get('benchmark', False),
+            limit_train_batches=opt.limit_train_batches,
+            limit_val_batches=opt.limit_val_batches,
+            **trainer_kwargs,
+        )
         trainer.logdir = logdir  ###
 
         # data
@@ -618,7 +640,7 @@ if __name__ == "__main__":
         # calling these ourselves should not be necessary but it is.
         # lightning still takes care of proper multiprocessing though
         data.prepare_data()
-        data.setup()
+        data.setup(stage="fit")
 
         # configure learning rate
         bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
@@ -659,7 +681,7 @@ if __name__ == "__main__":
         # run
         if opt.train:
             try:
-                trainer.fit(model, datamodule=data)
+                trainer.fit(model, datamodule=data, ckpt_path=resume_ckpt_path)
             except Exception:
                 melk()
                 raise
