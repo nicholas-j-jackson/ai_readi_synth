@@ -18,6 +18,7 @@ Analysis/oct_utility_eval.ipynb
 synth_all.tar.gz
 Analysis/table*
 Analysis/figure.pdf
+Analysis/figure*.png
 
 # Deprecated output dirs
 classification/RETFound_MAE/output_dir_iid/
