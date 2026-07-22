@@ -63,13 +63,7 @@ python scripts/01_train_ldm.py -b configs/diff-fundus.yml --max_epochs 1 --devic
 ```
 This uses `accelerate` for multi-GPU sampling, but `02_generate_synthetic_dataset.py` can also be run directly (single process) without it. This saves images to the directory specified by `data.save_path` in the config, plus a CSV of per-image attributes/labels.
 
-`02_generate_synthetic_dataset.py` refuses to write into the real, already-generated datasets (`/data/7TB/nick/ai_readi_v3/synth_fundus_32`, `synth_oct_32`) — it hard-blocks any `data.save_path` that resolves inside those directories, raising an error rather than overwriting. Pass `data.force=true` on the command line to override this only if you are certain.
-
-**To quickly and safely test that generation works** without touching real data or requiring a fully-trained model, use:
-```sh
-./scripts/test_generation.sh <fundus|oct> <model_path> <ae_path> [n_classes] [num_samples]
-```
-This always writes to `generation/test_generation_output/<task>/` (gitignored, unrelated to any real dataset directory) and defaults to generating just 8 images, regardless of what checkpoints you point it at.
+`data.save_path` is *not* checked against the existing generated datasets (`/data/7TB/nick/ai_readi_v3/synth_fundus_32`, `synth_oct_32`) — nothing stops a run from overwriting them, so double-check `data.save_path` (and consider pointing it at a scratch directory, or passing `data.limit=N` to cap the sample count) before testing changes to this script.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
